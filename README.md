@@ -47,3 +47,6 @@ git clone https://github.com/Soumadeep555/Project1_Document_Portal.git
 
 3. Vector Databases ## In-Memory, On-Disk, Cloud-Based
 
+## GROQ API KEY
+
+## GEMINI API KEY
