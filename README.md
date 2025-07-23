@@ -35,6 +35,6 @@ git commit -m "<write your commit message>"
 git push
 
 # Cloning the repository
-git clone https://github.com/sunnysavita10/document_portal.git
+git clone https://github.com/Soumadeep555/Project1_Document_Portal.git
 
 ```
