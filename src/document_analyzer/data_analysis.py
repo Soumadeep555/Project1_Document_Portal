@@ -14,7 +14,9 @@ class DocumentAnalyzer:
     def __init__(self):
         pass
 
-    def analyze_metadata(self):
+    def analyze_document(self):
         pass
 
     
+
+
