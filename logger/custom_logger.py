@@ -3,8 +3,6 @@ import logging
 from datetime import datetime
 import structlog
 
-
-
 class CustomLogger:
     def __init__(self, log_dir="logs"):
         # Ensure logs directory exists
