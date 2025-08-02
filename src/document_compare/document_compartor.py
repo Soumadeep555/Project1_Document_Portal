@@ -14,7 +14,8 @@ class DocumentComparatorLLM:
         pass
 
     def compare_documents(self):
-        """        Compares two documents and returns a structured summary of changes.
+        """
+        Compares two documents and returns a structured summary of changes.
         """
         pass
 
