@@ -139,7 +139,7 @@ def test_conversational_rag_on_pdf(pdf_path:str, question:str):
 if __name__ == "__main__":
     # Example PDF path and question
     pdf_path = "data\\single_document_chat\\LLMAll_en-US_FINAL.pdf"
-    question = "How to prevent Prompt Injection Attacks?"
+    question = "What is Data Poisoning Attack?"
 
     if not Path(pdf_path).exists():
         print(f"PDF file does not exist at: {pdf_path}")
