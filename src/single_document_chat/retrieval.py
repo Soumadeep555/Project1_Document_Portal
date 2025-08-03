@@ -15,9 +15,9 @@ from model.models import PromptType
 
 class ConversationalRAG:
     def __init__(self,session_id: str, retriever) -> None:
-       try:
-           self.log = CustomLogger().get_logger(__name__)
-       except Exception as e:
+        try:
+            self.log = CustomLogger().get_logger(__name__)
+        except Exception as e:
             self.log.error("Error initializing ConversationalRAG", error=str(e), session_id=session_id)
             raise DocumentPortalException("Failed to initialize ConversationalRAG", sys)
         
