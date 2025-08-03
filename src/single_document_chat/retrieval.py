@@ -28,8 +28,8 @@ class ConversationalRAG:
         except Exception as e:
             self.log.error("Error loading LLM via ModelLoader", error=str(e))
             raise DocumentPortalException("Failed to load LLM", sys)
-        
-    def _get_session_history(self,ession_id: str):
+
+    def _get_session_history(self,session_id: str):
         try:
             pass
         except Exception as e:
