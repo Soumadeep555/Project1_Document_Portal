@@ -2,7 +2,7 @@ import uuid
 from pathlib import Path
 import sys
 from datetime import datetime, timezone
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from logger.custom_logger import CustomLogger
@@ -98,7 +98,7 @@ class DocumentIngestor:
             self.log.info("FAISS index saved to disk", path=str(self.session_faiss_dir), session_id=self.session_id)
 
             retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
-            
+
             self.log.info("FAISS retriever created and ready to use", session_id=self.session_id)
             return retriever
 
