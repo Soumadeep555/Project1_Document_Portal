@@ -41,28 +41,73 @@ class ConversationalRAG:
             if not os.path.isdir(index_path):
                 raise FileNotFoundError(f"FAISS index directory not found: {index_path}")
             
-            FAISS.load_local(
+            vectorstore = FAISS.load_local(
                 index_path,
                 embeddings,
-                allow_dangerous_deserialization=True
+                allow_dangerous_deserialization=True # only if you trust the index
             )
+
+            self.retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+            self.log.info("FAISS retriever loaded successfully", index_path=index_path, session_id=self.session_id)
+
+            self._build_lcel_chain()
+            return self.retriever
 
         except Exception as e:
             self.log.error("Failed to load retriever from FAISS", error=str(e))
             raise DocumentPortalException("Loading error in ConversationalRAG", sys)
 
     def invoke(self):
-        pass
+        try:
+            pass
+
+        except Exception as e:
+            self.log.error("Failed to invoke ConversationalRAG", error=str(e))
+            raise DocumentPortalException("Invocation error in ConversationalRAG", sys)
 
     def _load_llm(self):
-        pass
+        try:
+            llm = ModelLoader().load_llm()
+            if not llm:
+                raise ValueError("LLM could not be loaded")
+            self.log.info("LLM loaded successfully", session_id=self.session_id)
+            return llm
+
+        except Exception as e:
+            self.log.error("Failed to load LLM", error=str(e))
+            raise DocumentPortalException("LLM loading error in ConversationalRAG", sys)
 
     @staticmethod
     def _format_docs(docs):
-        pass
+        return "\n\n".join(d.page_content for d in docs)
 
     def _build_lcel_chain(self):
-        pass
+        try:
+            # 1> Rewrite question using chat history
+            question_rewriter = (
+                {"input": itemgetter("input"),"chat_history": itemgetter("chat_history")}
+                | self.contextualize_prompt
+                | self.llm
+                | StrOutputParser()
+            )
 
+            # 2> Retrieve docs for rewritten question
+            retrieve_docs = self.retriever | self._format_docs
+            
+            # 3> Feed context + original input + chat history into answer prompt 
+            self.chain = (
+                {
+                    "context": retrieve_docs, 
+                    "input": itemgetter("input"),
+                    "chat_history": itemgetter("chat_history")
+                }
+                | self.qa_prompt
+                | self.llm
+                | StrOutputParser()
+            )
 
+            self.log.info("LCEL graph built successfully", session_id=self.session_id)
 
+        except Exception as e:
+            self.log.error("Failed to build LCEL chain", error=str(e))
+            raise DocumentPortalException("Chain building error in ConversationalRAG", sys)
