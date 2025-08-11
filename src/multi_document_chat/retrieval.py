@@ -108,9 +108,9 @@ class ConversationalRAG:
             )
 
             # 2> Retrieve docs for rewritten question
-            retrieve_docs = self.retriever | self._format_docs
-            
-            # 3> Feed context + original input + chat history into answer prompt 
+            retrieve_docs = question_rewriter | self.retriever | self._format_docs
+
+            # 3> Feed context + original input + chat history into answer prompt
             self.chain = (
                 {
                     "context": retrieve_docs, 

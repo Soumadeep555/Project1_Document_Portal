@@ -188,7 +188,7 @@ def test_document_ingestion_and_rag():
         
         rag = ConversationalRAG(session_id=session_id, retriever=retriever)
         
-        question = "Provide some examples of prompt injection attacks?"
+        question = "Explain prompt injection attacks?"
         
         answer=rag.invoke(question)
         
