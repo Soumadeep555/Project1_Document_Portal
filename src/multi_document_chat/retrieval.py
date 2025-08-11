@@ -18,5 +18,5 @@ class ConversationalRAG:
     def _build_lcel_chain(self):
         pass
 
-    
+
 
