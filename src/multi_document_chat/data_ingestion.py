@@ -50,7 +50,7 @@ class DocumentIngestor:
             documents = []
 
             for uploaded_file in uploaded_files:
-                ext = Path(uploaded_file.filename).suffix.lower()
+                ext = Path(uploaded_file.name).suffix.lower()
                 if ext not in self.SUPPORTED_FILE_EXTENSIONS:
                     self.log.warning(f"Unsupported file skipped", filename = uploaded_file.name)
                     continue
@@ -91,7 +91,7 @@ class DocumentIngestor:
 
             self.log.info("Documents split into chunks", total_chunks=len(chunks), session_id=self.session_id)
             embeddings = self.model_loader.load_embeddings()
-            vectorstore = FAISS.from_embeddings(documents=chunks, embedding=embeddings)
+            vectorstore = FAISS.from_documents(documents=chunks, embedding=embeddings)
 
             # Save FAISS index under session folder
             vectorstore.save_local(str(self.session_faiss_dir))

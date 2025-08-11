@@ -33,7 +33,7 @@ class ConversationalRAG:
             self.log.error("Failed to initialize ConversationalRAG", error=str(e))
             raise DocumentPortalException("Initialization error in ConversationalRAG", sys)
 
-    def load_retriever_from_faiss(self,index_path:str):
+    def load_retriever_from_faiss(self,index_path: str):
         """
         Load a FAISS vectorstore from disk and convert to retriever
         """
