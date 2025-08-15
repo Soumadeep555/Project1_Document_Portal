@@ -19,24 +19,11 @@ conda create -p <env_name> python=3.10 -y
 # Activate the environment (use full path to the environment)
 conda activate <path_of_the_env>
 
-# Install dependencies from requirements.txt
-pip install -r requirements.txt
-
-# Initialize Git
-git init
-
-# Stage all files
-git add .
-
-# Commit changes
-git commit -m "<write your commit message>"
-
-# Push to remote (after adding remote origin)
-git push
-
 # Cloning the repository
 git clone https://github.com/Soumadeep555/Project1_Document_Portal.git
 
+# Install dependencies from requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Minimum Requirements for the Project
@@ -50,3 +37,9 @@ git clone https://github.com/Soumadeep555/Project1_Document_Portal.git
 ## GROQ API KEY
 
 ## GEMINI API KEY
+
+```
+## RUN THE APP:
+cd api
+uvicorn api.main:app --reload
+```
