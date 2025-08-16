@@ -31,13 +31,13 @@ class FaissManager:
         self.index_dir.mkdir(parents=True, exist_ok=True)
         
         self.meta_path = self.index_dir / "ingested_meta.json"
-        self._meta: Dict[str, Any] = {"rows": {}}
+        self._meta: Dict[str, Any] = {"rows": {}} ## this is dict of rows
         
         if self.meta_path.exists():
             try:
-                self._meta = json.loads(self.meta_path.read_text(encoding="utf-8")) or {"rows": {}}
+                self._meta = json.loads(self.meta_path.read_text(encoding="utf-8")) or {"rows": {}} # load it if alrady there
             except Exception:
-                self._meta = {"rows": {}}
+                self._meta = {"rows": {}} # init the empty one if dones not exists
         
 
         self.model_loader = model_loader or ModelLoader()
@@ -60,12 +60,14 @@ class FaissManager:
         
         
     def add_documents(self,docs: List[Document]):
+        
         if self.vs is None:
             raise RuntimeError("Call load_or_create() before add_documents_idempotent().")
         
         new_docs: List[Document] = []
         
         for d in docs:
+            
             key = self._fingerprint(d.page_content, d.metadata or {})
             if key in self._meta["rows"]:
                 continue
@@ -79,6 +81,7 @@ class FaissManager:
         return len(new_docs)
     
     def load_or_create(self,texts:Optional[List[str]]=None, metadatas: Optional[List[dict]] = None):
+        ## if we running first time then it will not go in this block
         if self._exists():
             self.vs = FAISS.load_local(
                 str(self.index_dir),
@@ -86,9 +89,10 @@ class FaissManager:
                 allow_dangerous_deserialization=True,
             )
             return self.vs
+        
+        
         if not texts:
             raise DocumentPortalException("No existing FAISS index and no data to create one", sys)
-        
         self.vs = FAISS.from_texts(texts=texts, embedding=self.emb, metadatas=metadatas or [])
         self.vs.save_local(str(self.index_dir))
         return self.vs
@@ -150,6 +154,8 @@ class ChatIngestor:
                 raise ValueError("No valid documents loaded")
             
             chunks = self._split(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            
+            ## FAISS manager very very important class for the docchat
             fm = FaissManager(self.faiss_dir, self.model_loader)
             
             texts = [c.page_content for c in chunks]
