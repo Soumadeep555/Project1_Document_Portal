@@ -17,7 +17,7 @@ from src.document_chat.retrieval import ConversationalRAG
 
 # Command to execute the Fast API:
 # cd api
-# uvicorn api.main:app --reload
+# uvicorn api.main:app --port 8080 --reload
 
 FAISS_BASE = os.getenv("FAISS_BASE", "faiss_index")
 UPLOAD_BASE = os.getenv("UPLOAD_BASE", "data")

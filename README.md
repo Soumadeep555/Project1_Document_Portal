@@ -26,6 +26,12 @@ git clone https://github.com/Soumadeep555/Project1_Document_Portal.git
 pip install -r requirements.txt
 ```
 
+```
+## RUN THE APP:
+cd api
+uvicorn api.main:app --port 8080 --reload
+```
+
 ## Minimum Requirements for the Project
 
 1. LLM Models ## Groq (Free), OpenAI (Paid), Gemini (15 Days Free Access), Claude (Paid), Hugging Face (Free), Ollama (Local Setup)
@@ -38,8 +44,3 @@ pip install -r requirements.txt
 
 ## GEMINI API KEY
 
-```
-## RUN THE APP:
-cd api
-uvicorn api.main:app --reload
-```
