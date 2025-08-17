@@ -28,7 +28,6 @@ pip install -r requirements.txt
 
 ```
 ## RUN THE APP:
-cd api
 uvicorn api.main:app --port 8080 --reload
 ```
 
