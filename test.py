@@ -153,8 +153,8 @@
 
 import sys
 from pathlib import Path
-from src.multi_document_chat.data_ingestion import DocumentIngestor
-from src.multi_document_chat.retrieval import ConversationalRAG
+from src.document_ingestion.data_ingestion import ChatIngestor
+from src.document_chat.retrieval import ConversationalRAG
 
 def test_document_ingestion_and_rag():
     try:
@@ -176,9 +176,9 @@ def test_document_ingestion_and_rag():
         if not uploaded_files:
             print("No valid files to upload.")
             sys.exit(1)
-            
-        ingestor = DocumentIngestor()
-        
+
+        ingestor = ChatIngestor()
+
         retriever = ingestor.ingest_files(uploaded_files)
         
         for f in uploaded_files:
