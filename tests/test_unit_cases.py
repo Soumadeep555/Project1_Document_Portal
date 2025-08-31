@@ -12,3 +12,4 @@ def test_home():
     assert response.status_code == 200
     assert "Document Portal" in response.text
 
+#Write the remaining test cases
