@@ -215,3 +215,62 @@ input:checked + .slider:before{transform:translateX(20px)}
   .grid-3{grid-template-columns:1fr}
   .form-grid .actions, .form-grid-2 .actions{justify-content:stretch}
 }
+
+/* ====== CHAT ====== */
+.chat-box {
+  border:1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--glass);
+  padding:14px;
+  max-height:400px;
+  overflow-y:auto;
+  box-shadow: var(--shadow);
+}
+
+.chat-message {
+  margin: 8px 0;
+  padding:10px 14px;
+  border-radius: var(--radius-sm);
+  max-width: 75%;
+  word-wrap: break-word;
+}
+
+.chat-message.user {
+  margin-left:auto;
+  background: linear-gradient(135deg, var(--accent), #4ea2ff);
+  color:#0b1020;
+  font-weight:500;
+}
+
+.chat-message.bot {
+  margin-right:auto;
+  background: linear-gradient(180deg, #0d1520, #0a111a);
+  border:1px solid var(--border);
+  color: var(--text);
+}
+
+/* ====== IMAGE PREVIEW ====== */
+.doc-image {
+  max-width:100%;
+  border-radius: var(--radius-sm);
+  border:1px solid var(--border);
+  margin: 10px 0;
+  box-shadow: var(--shadow);
+}
+
+/* ====== TABLE PREVIEW ====== */
+.doc-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.doc-table th, .doc-table td {
+  border: 1px solid #152031;
+  padding: 10px;
+}
+
+.doc-table th {
+  background: linear-gradient(180deg,#0f1622,#0c121b);
+  color: #d7deea;
+}
