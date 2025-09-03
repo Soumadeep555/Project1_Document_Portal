@@ -15,7 +15,7 @@ from src.document_ingestion.data_ingestion import (
 from src.document_analyzer.data_analysis import DocumentAnalyzer
 from src.document_compare.document_comparator import DocumentComparatorLLM
 from src.document_chat.retrieval import ConversationalRAG
-from utils.document_ops import FastAPIFileAdapter,read_pdf_via_handler
+from utils.document_ops import FastAPIFileAdapter,read_pdf_via_handler  # Note: read_pdf_via_handler can be updated internally if needed
 
 FAISS_BASE = os.getenv("FAISS_BASE", "faiss_index")
 UPLOAD_BASE = os.getenv("UPLOAD_BASE", "data")
@@ -50,8 +50,8 @@ def health() -> Dict[str, str]:
 async def analyze_document(file: UploadFile = File(...)) -> Any:
     try:
         dh = DocHandler()
-        saved_path = dh.save_pdf(FastAPIFileAdapter(file))
-        text = read_pdf_via_handler(dh, saved_path)
+        saved_path = dh.save_pdf(FastAPIFileAdapter(file))  # Logic now handles all types
+        text = dh.read_pdf(saved_path)  # Logic now handles all types
         analyzer = DocumentAnalyzer()
         result = analyzer.analyze_document(text)
         return JSONResponse(content=result)
@@ -68,7 +68,6 @@ async def compare_documents(reference: UploadFile = File(...), actual: UploadFil
         ref_path, act_path = dc.save_uploaded_files(
             FastAPIFileAdapter(reference), FastAPIFileAdapter(actual)
         )
-        _ = ref_path, act_path
         combined_text = dc.combine_documents()
         comp = DocumentComparatorLLM()
         df = comp.compare_documents(combined_text)
@@ -90,17 +89,13 @@ async def chat_build_index(
 ) -> Any:
     try:
         wrapped = [FastAPIFileAdapter(f) for f in files]
-        # this is my main class for storing a data into VDB
-        # created a object of ChatIngestor
         ci = ChatIngestor(
             temp_base=UPLOAD_BASE,
             faiss_base=FAISS_BASE,
             use_session_dirs=use_session_dirs,
             session_id=session_id or None,
         )
-        # NOTE: ensure your ChatIngestor saves with index_name="index" or FAISS_INDEX_NAME
-        # e.g., if it calls FAISS.save_local(dir, index_name=FAISS_INDEX_NAME)
-        ci.built_retriver(  # if your method name is actually build_retriever, fix it there as well
+        ci.build_retriever(  # Assuming corrected name
             wrapped, chunk_size=chunk_size, chunk_overlap=chunk_overlap, k=k
         )
         return {"session_id": ci.session_id, "k": k, "use_session_dirs": use_session_dirs}
@@ -139,12 +134,3 @@ async def chat_query(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {e}")
-
-
-
-
-
-
-# command for executing the fast api
-# uvicorn api.main:app --reload
-# uvicorn api.main:app --port 8080 --reload

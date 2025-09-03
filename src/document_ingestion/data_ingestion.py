@@ -14,15 +14,64 @@ from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, UnstructuredPowerPointLoader  # New imports for extended support
 
 from utils.model_loader import ModelLoader
 from logger.custom_logger import CustomLogger
 from exception.custom_exception import DocumentPortalException
 
 from utils.file_io import generate_session_id, save_uploaded_files
-from utils.document_ops import load_documents, concat_for_analysis, concat_for_comparison
+from utils.document_ops import load_documents, concat_for_analysis, concat_for_comparison  # Assuming load_documents is here or imported; integrated additions
+from utils.extractors import extract_tables, extract_and_describe_images, load_sqlite_db  # New import from extractors
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".pptx", ".md", ".xlsx", ".csv", ".sql", ".db"}  # Extended with new types
+
+# Module-level logger
+log = CustomLogger().get_logger(__name__)
+
+# Assuming load_documents is defined in this file or utils/document_ops.py; providing integrated version here with additions
+def load_documents(file_path: str) -> List[Document]:
+    """
+    Loads documents from the file, including text, tables, and image descriptions.
+    """
+    try:
+        extension = os.path.splitext(file_path)[1].lower()
+        if extension not in SUPPORTED_EXTENSIONS:
+            raise ValueError(f"Unsupported file extension: {extension}")
+
+        # Load base documents using appropriate loader
+        if extension == '.pdf':
+            loader = PyPDFLoader(file_path)
+        elif extension == '.docx':
+            loader = Docx2txtLoader(file_path)
+        elif extension in {'.txt', '.md', '.sql'}:
+            loader = TextLoader(file_path)
+        elif extension == '.pptx':
+            loader = UnstructuredPowerPointLoader(file_path)
+        elif extension == '.xlsx':
+            loader = UnstructuredExcelLoader(file_path)
+        elif extension == '.csv':
+            loader = CSVLoader(file_path)
+        elif extension == '.db':
+            return load_sqlite_db(file_path)  # Special handling for SQLite
+        else:
+            raise ValueError("Unknown loader")
+
+        docs = loader.load()
+
+        # Add extracted tables and images
+        model_loader = ModelLoader()
+        llm = model_loader.load_llm()
+        provider = model_loader.get_provider()
+        table_docs = extract_tables(file_path, extension)
+        image_docs = extract_and_describe_images(file_path, extension, llm, provider)
+
+        log.info("Documents loaded with extensions", file_path=file_path, base_count=len(docs), table_count=len(table_docs), image_count=len(image_docs))
+        return docs + table_docs + image_docs
+
+    except Exception as e:
+        log.error(f"Document loading failed for {file_path}", error=str(e))
+        raise DocumentPortalException("Document loading failed", sys) from e
 
 # FAISS Manager (load-or-create)
 class FaissManager:
@@ -126,103 +175,71 @@ class ChatIngestor:
         except Exception as e:
             self.log.error("Failed to initialize ChatIngestor", error=str(e))
             raise DocumentPortalException("Initialization error in ChatIngestor", e) from e
-            
-        
-    def _resolve_dir(self, base: Path):
+
+    def _resolve_dir(self, base: Path) -> Path:
         if self.use_session:
-            d = base / self.session_id # e.g. "faiss_index/abc123"
-            d.mkdir(parents=True, exist_ok=True) # creates dir if not exists
-            return d
-        return base # fallback: "faiss_index/"
-        
-    def _split(self, docs: List[Document], chunk_size=1000, chunk_overlap=200) -> List[Document]:
-        splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        chunks = splitter.split_documents(docs)
-        self.log.info("Documents split", chunks=len(chunks), chunk_size=chunk_size, overlap=chunk_overlap)
-        return chunks
-    
-    def built_retriver( self,
-        uploaded_files: Iterable,
-        *,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
-        k: int = 5,):
+            dir_path = base / self.session_id
+            dir_path.mkdir(parents=True, exist_ok=True)
+            return dir_path
+        return base
+
+    def build_retriever(self, uploaded_files, chunk_size=1000, chunk_overlap=200, k=5):  # Assuming this is the method name, corrected from 'built_retriver'
         try:
-            paths = save_uploaded_files(uploaded_files, self.temp_dir)
-            docs = load_documents(paths)
-            if not docs:
-                raise ValueError("No valid documents loaded")
-            
-            chunks = self._split(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            
-            ## FAISS manager very very important class for the docchat
-            fm = FaissManager(self.faiss_dir, self.model_loader)
-            
-            texts = [c.page_content for c in chunks]
-            metas = [c.metadata for c in chunks]
-            
-            try:
-                vs = fm.load_or_create(texts=texts, metadatas=metas)
-            except Exception:
-                vs = fm.load_or_create(texts=texts, metadatas=metas)
-                
-            added = fm.add_documents(chunks)
-            self.log.info("FAISS index updated", added=added, index=str(self.faiss_dir))
-            
-            return vs.as_retriever(search_type="similarity", search_kwargs={"k": k})
-            
+            saved_paths = save_uploaded_files(uploaded_files, self.temp_dir)
+            docs = []
+            for path in saved_paths:
+                loaded_docs = load_documents(str(path))
+                splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                split_docs = splitter.split_documents(loaded_docs)
+                docs.extend(split_docs)
+            fm = FaissManager(self.faiss_dir)
+            fm.load_or_create()
+            added = fm.add_documents(docs)
+            self.log.info("Retriever built", added_docs=added, session_id=self.session_id)
         except Exception as e:
             self.log.error("Failed to build retriever", error=str(e))
-            raise DocumentPortalException("Failed to build retriever", e) from e
+            raise DocumentPortalException("Retriever build failed", sys) from e
 
-            
-        
-            
 class DocHandler:
-    """
-    PDF save + read (page-wise) for analysis.
-    """
-    def __init__(self, data_dir: Optional[str] = None, session_id: Optional[str] = None):
+    def __init__(self, base_dir: str = "data/document_analysis", session_id: Optional[str] = None):
         self.log = CustomLogger().get_logger(__name__)
-        self.data_dir = data_dir or os.getenv("DATA_STORAGE_PATH", os.path.join(os.getcwd(), "data", "document_analysis"))
-        self.session_id = session_id or generate_session_id("session")
-        self.session_path = os.path.join(self.data_dir, self.session_id)
-        os.makedirs(self.session_path, exist_ok=True)
-        self.log.info("DocHandler initialized", session_id=self.session_id, session_path=self.session_path)
+        self.base_dir = Path(base_dir)
+        self.session_id = session_id or generate_session_id()
+        self.session_path = self.base_dir / self.session_id
+        self.session_path.mkdir(parents=True, exist_ok=True)
+        self.log.info("DocHandler initialized", session_path=str(self.session_path))
 
-    def save_pdf(self, uploaded_file) -> str:
+    def save_pdf(self, uploaded_file):  # Renamed internally to save_file but kept name for compatibility; added extension check
         try:
-            filename = os.path.basename(uploaded_file.name)
-            if not filename.lower().endswith(".pdf"):
-                raise ValueError("Invalid file type. Only PDFs are allowed.")
-            save_path = os.path.join(self.session_path, filename)
+            filename = uploaded_file.name
+            extension = os.path.splitext(filename)[1].lower()
+            if extension not in SUPPORTED_EXTENSIONS:
+                raise ValueError(f"Unsupported file type: {extension}")
+            save_path = self.session_path / filename
             with open(save_path, "wb") as f:
                 if hasattr(uploaded_file, "read"):
                     f.write(uploaded_file.read())
                 else:
                     f.write(uploaded_file.getbuffer())
-            self.log.info("PDF saved successfully", file=filename, save_path=save_path, session_id=self.session_id)
+            self.log.info("File saved successfully", file=filename, save_path=save_path, session_id=self.session_id)
             return save_path
         except Exception as e:
-            self.log.error("Failed to save PDF", error=str(e), session_id=self.session_id)
-            raise DocumentPortalException(f"Failed to save PDF: {str(e)}", e) from e
+            self.log.error("Failed to save file", error=str(e), session_id=self.session_id)
+            raise DocumentPortalException(f"Failed to save file: {str(e)}", sys) from e
 
-    def read_pdf(self, pdf_path: str) -> str:
+    def read_pdf(self, pdf_path: str) -> str:  # Renamed internally to read_document but kept name; now uses load_documents
         try:
-            text_chunks = []
-            with fitz.open(pdf_path) as doc:
-                for page_num in range(doc.page_count):
-                    page = doc.load_page(page_num)
-                    text_chunks.append(f"\n--- Page {page_num + 1} ---\n{page.get_text()}")  # type: ignore
-            text = "\n".join(text_chunks)
-            self.log.info("PDF read successfully", pdf_path=pdf_path, session_id=self.session_id, pages=len(text_chunks))
+            docs = load_documents(pdf_path)
+            text = "\n\n".join([d.page_content for d in docs])
+            self.log.info("Document read successfully", pdf_path=pdf_path, session_id=self.session_id, pages=len(docs))
             return text
         except Exception as e:
-            self.log.error("Failed to read PDF", error=str(e), pdf_path=pdf_path, session_id=self.session_id)
-            raise DocumentPortalException(f"Could not process PDF: {pdf_path}", e) from e
+            self.log.error("Failed to read document", error=str(e), pdf_path=pdf_path, session_id=self.session_id)
+            raise DocumentPortalException(f"Could not process document: {pdf_path}", sys) from e
+
 class DocumentComparator:
     """
-    Save, read & combine PDFs for comparison with session-based versioning.
+    Save, read & combine documents for comparison with session-based versioning.
     """
     def __init__(self, base_dir: str = "data/document_compare", session_id: Optional[str] = None):
         self.log = CustomLogger().get_logger(__name__)
@@ -234,11 +251,13 @@ class DocumentComparator:
 
     def save_uploaded_files(self, reference_file, actual_file):
         try:
+            ref_ext = os.path.splitext(reference_file.name)[1].lower()
+            act_ext = os.path.splitext(actual_file.name)[1].lower()
+            if ref_ext not in SUPPORTED_EXTENSIONS or act_ext not in SUPPORTED_EXTENSIONS:
+                raise ValueError("Unsupported file type.")
             ref_path = self.session_path / reference_file.name
             act_path = self.session_path / actual_file.name
             for fobj, out in ((reference_file, ref_path), (actual_file, act_path)):
-                if not fobj.name.lower().endswith(".pdf"):
-                    raise ValueError("Only PDF files are allowed.")
                 with open(out, "wb") as f:
                     if hasattr(fobj, "read"):
                         f.write(fobj.read())
@@ -247,31 +266,31 @@ class DocumentComparator:
             self.log.info("Files saved", reference=str(ref_path), actual=str(act_path), session=self.session_id)
             return ref_path, act_path
         except Exception as e:
-            self.log.error("Error saving PDF files", error=str(e), session=self.session_id)
-            raise DocumentPortalException("Error saving files", e) from e
+            self.log.error("Error saving files", error=str(e), session=self.session_id)
+            raise DocumentPortalException("Error saving files", sys) from e
 
-    def read_pdf(self, pdf_path: Path) -> str:
+    def read_pdf(self, pdf_path: Path) -> str:  # Kept name but now handles general documents
         try:
-            with fitz.open(pdf_path) as doc:
-                if doc.is_encrypted:
-                    raise ValueError(f"PDF is encrypted: {pdf_path.name}")
-                parts = []
-                for page_num in range(doc.page_count):
-                    page = doc.load_page(page_num)
-                    text = page.get_text()  # type: ignore
-                    if text.strip():
-                        parts.append(f"\n --- Page {page_num + 1} --- \n{text}")
-            self.log.info("PDF read successfully", file=str(pdf_path), pages=len(parts))
+            docs = load_documents(str(pdf_path))
+            parts = []
+            for d in docs:
+                if d.metadata.get("type") == "table":
+                    parts.append(f"\n --- Table --- \n{d.page_content}")
+                elif d.metadata.get("type") == "image":
+                    parts.append(f"\n --- Image Description --- \n{d.page_content}")
+                else:
+                    parts.append(d.page_content)
+            self.log.info("Document read successfully", file=str(pdf_path), parts=len(parts))
             return "\n".join(parts)
         except Exception as e:
-            self.log.error("Error reading PDF", file=str(pdf_path), error=str(e))
-            raise DocumentPortalException("Error reading PDF", e) from e
+            self.log.error("Error reading document", file=str(pdf_path), error=str(e))
+            raise DocumentPortalException("Error reading document", sys) from e
 
     def combine_documents(self) -> str:
         try:
             doc_parts = []
             for file in sorted(self.session_path.iterdir()):
-                if file.is_file() and file.suffix.lower() == ".pdf":
+                if file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS:
                     content = self.read_pdf(file)
                     doc_parts.append(f"Document: {file.name}\n{content}")
             combined_text = "\n\n".join(doc_parts)
@@ -279,7 +298,7 @@ class DocumentComparator:
             return combined_text
         except Exception as e:
             self.log.error("Error combining documents", error=str(e), session=self.session_id)
-            raise DocumentPortalException("Error combining documents", e) from e
+            raise DocumentPortalException("Error combining documents", sys) from e
 
     def clean_old_sessions(self, keep_latest: int = 3):
         try:
@@ -289,4 +308,4 @@ class DocumentComparator:
                 self.log.info("Old session folder deleted", path=str(folder))
         except Exception as e:
             self.log.error("Error cleaning old sessions", error=str(e))
-            raise DocumentPortalException("Error cleaning old sessions", e) from e
+            raise DocumentPortalException("Error cleaning old sessions", sys) from e
