@@ -24,7 +24,8 @@ packages = [
     "python-docx",
     "python-pptx",
     "pillow",
-    "nltk"
+    "nltk",
+    "PyPDF2"
 ]
 for pkg in packages:
     try:

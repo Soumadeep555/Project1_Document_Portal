@@ -11,15 +11,16 @@ from src.document_ingestion.data_ingestion import (
     DocHandler,
     DocumentComparator,
     ChatIngestor,
+    load_documents,  # Added import
 )
 from src.document_analyzer.data_analysis import DocumentAnalyzer
 from src.document_compare.document_comparator import DocumentComparatorLLM
 from src.document_chat.retrieval import ConversationalRAG
-from utils.document_ops import FastAPIFileAdapter,read_pdf_via_handler  # Note: read_pdf_via_handler can be updated internally if needed
+from utils.document_ops import FastAPIFileAdapter
 
 FAISS_BASE = os.getenv("FAISS_BASE", "faiss_index")
 UPLOAD_BASE = os.getenv("UPLOAD_BASE", "data")
-FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "index")  # <--- keep consistent with save_local()
+FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "index")
 
 app = FastAPI(title="Document Portal API", version="0.1")
 
@@ -50,11 +51,11 @@ def health() -> Dict[str, str]:
 async def analyze_document(file: UploadFile = File(...)) -> Any:
     try:
         dh = DocHandler()
-        saved_path = dh.save_pdf(FastAPIFileAdapter(file))  # Logic now handles all types
-        text = dh.read_pdf(saved_path)  # Logic now handles all types
+        saved_path = dh.save_pdf(FastAPIFileAdapter(file))  # Save file
+        docs = load_documents(str(saved_path))  # Load as Document objects
         analyzer = DocumentAnalyzer()
-        result = analyzer.analyze_document(text)
-        return JSONResponse(content=result)
+        result = analyzer.analyze_document(docs, saved_path)  # Pass docs and file_path
+        return JSONResponse(content=result.dict())  # Convert Pydantic model to dict
     except HTTPException:
         raise
     except Exception as e:
@@ -95,7 +96,7 @@ async def chat_build_index(
             use_session_dirs=use_session_dirs,
             session_id=session_id or None,
         )
-        ci.build_retriever(  # Assuming corrected name
+        ci.build_retriever(
             wrapped, chunk_size=chunk_size, chunk_overlap=chunk_overlap, k=k
         )
         return {"session_id": ci.session_id, "k": k, "use_session_dirs": use_session_dirs}
@@ -116,12 +117,12 @@ async def chat_query(
         if use_session_dirs and not session_id:
             raise HTTPException(status_code=400, detail="session_id is required when use_session_dirs=True")
 
-        index_dir = os.path.join(FAISS_BASE, session_id) if use_session_dirs else FAISS_BASE  # type: ignore
+        index_dir = os.path.join(FAISS_BASE, session_id) if use_session_dirs else FAISS_BASE
         if not os.path.isdir(index_dir):
             raise HTTPException(status_code=404, detail=f"FAISS index not found at: {index_dir}")
 
         rag = ConversationalRAG(session_id=session_id)
-        rag.load_retriever_from_faiss(index_dir, k=k, index_name=FAISS_INDEX_NAME)  # build retriever + chain
+        rag.load_retriever_from_faiss(index_dir, k=k, index_name=FAISS_INDEX_NAME)
         response = rag.invoke(question, chat_history=[])
 
         return {

@@ -14,25 +14,23 @@ from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, UnstructuredPowerPointLoader  # New imports for extended support
+from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader
 
 from utils.model_loader import ModelLoader
 from logger.custom_logger import CustomLogger
 from exception.custom_exception import DocumentPortalException
 
 from utils.file_io import generate_session_id, save_uploaded_files
-from utils.document_ops import load_documents, concat_for_analysis, concat_for_comparison  # Assuming load_documents is here or imported; integrated additions
-from utils.extractors import extract_tables, extract_and_describe_images, load_sqlite_db  # New import from extractors
+from utils.document_ops import load_documents, concat_for_analysis, concat_for_comparison
+from utils.extractors import extract_tables, extract_and_describe_images, load_sqlite_db
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".pptx", ".md", ".xlsx", ".csv", ".sql", ".db"}  # Extended with new types
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".xlsx", ".csv", ".sql", ".db"}
 
-# Module-level logger
 log = CustomLogger().get_logger(__name__)
 
-# Assuming load_documents is defined in this file or utils/document_ops.py; providing integrated version here with additions
 def load_documents(file_path: str) -> List[Document]:
     """
-    Loads documents from the file, including text, tables, and image descriptions.
+    Loads documents from the file, including text, tables, and image descriptions, with chunking to avoid TPM limits.
     """
     try:
         extension = os.path.splitext(file_path)[1].lower()
@@ -46,8 +44,6 @@ def load_documents(file_path: str) -> List[Document]:
             loader = Docx2txtLoader(file_path)
         elif extension in {'.txt', '.md', '.sql'}:
             loader = TextLoader(file_path)
-        elif extension == '.pptx':
-            loader = UnstructuredPowerPointLoader(file_path)
         elif extension == '.xlsx':
             loader = UnstructuredExcelLoader(file_path)
         elif extension == '.csv':
@@ -59,45 +55,56 @@ def load_documents(file_path: str) -> List[Document]:
 
         docs = loader.load()
 
-        # Add extracted tables and images
-        model_loader = ModelLoader()
-        llm = model_loader.load_llm()
-        provider = model_loader.get_provider()
-        table_docs = extract_tables(file_path, extension)
-        image_docs = extract_and_describe_images(file_path, extension, llm, provider)
+        # Split documents to smaller chunks to avoid TPM limit
+        splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
+        split_docs = []
+        for doc in docs:
+            split_texts = splitter.split_text(doc.page_content)
+            for i, text in enumerate(split_texts):
+                split_docs.append(Document(
+                    page_content=text,
+                    metadata={**doc.metadata, "chunk_index": i}
+                ))
 
-        log.info("Documents loaded with extensions", file_path=file_path, base_count=len(docs), table_count=len(table_docs), image_count=len(image_docs))
-        return docs + table_docs + image_docs
+        # Add extracted tables (no LLM needed)
+        table_docs = extract_tables(file_path, extension)
+
+        # Add extracted images only if extension supports images (lazy load LLM)
+        image_docs = []
+        if extension in {'.pdf', '.docx'}:
+            model_loader = ModelLoader()
+            llm = model_loader.load_llm()
+            provider = model_loader.get_provider()
+            image_docs = extract_and_describe_images(file_path, extension, llm, provider)
+
+        log.info("Documents loaded with extensions", file_path=file_path, base_count=len(split_docs), table_count=len(table_docs), image_count=len(image_docs))
+        return split_docs + table_docs + image_docs
 
     except Exception as e:
         log.error(f"Document loading failed for {file_path}", error=str(e))
         raise DocumentPortalException("Document loading failed", sys) from e
 
-# FAISS Manager (load-or-create)
 class FaissManager:
     def __init__(self, index_dir: Path, model_loader: Optional[ModelLoader] = None):
         self.index_dir = Path(index_dir)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         
         self.meta_path = self.index_dir / "ingested_meta.json"
-        self._meta: Dict[str, Any] = {"rows": {}} ## this is dict of rows
-        
+        self._meta: Dict[str, Any] = {"rows": {}}
         if self.meta_path.exists():
             try:
-                self._meta = json.loads(self.meta_path.read_text(encoding="utf-8")) or {"rows": {}} # load it if alrady there
+                self._meta = json.loads(self.meta_path.read_text(encoding="utf-8")) or {"rows": {}}
             except Exception:
-                self._meta = {"rows": {}} # init the empty one if dones not exists
-        
+                self._meta = {"rows": {}}
 
         self.model_loader = model_loader or ModelLoader()
         self.emb = self.model_loader.load_embeddings()
         self.vs: Optional[FAISS] = None
         
-    def _exists(self)-> bool:
+    def _exists(self) -> bool:
         return (self.index_dir / "index.faiss").exists() and (self.index_dir / "index.pkl").exists()
     
-    @staticmethod
-    def _fingerprint(text: str, md: Dict[str, Any]) -> str:
+    def _fingerprint(self, text: str, md: Dict[str, Any]) -> str:
         src = md.get("source") or md.get("file_path")
         rid = md.get("row_id")
         if src is not None:
@@ -107,16 +114,12 @@ class FaissManager:
     def _save_meta(self):
         self.meta_path.write_text(json.dumps(self._meta, ensure_ascii=False, indent=2), encoding="utf-8")
         
-        
-    def add_documents(self,docs: List[Document]):
-        
+    def add_documents(self, docs: List[Document]):
         if self.vs is None:
-            raise RuntimeError("Call load_or_create() before add_documents_idempotent().")
+            raise RuntimeError("Call load_or_create() before add_documents.")
         
         new_docs: List[Document] = []
-        
         for d in docs:
-            
             key = self._fingerprint(d.page_content, d.metadata or {})
             if key in self._meta["rows"]:
                 continue
@@ -129,8 +132,7 @@ class FaissManager:
             self._save_meta()
         return len(new_docs)
     
-    def load_or_create(self,texts:Optional[List[str]]=None, metadatas: Optional[List[dict]] = None):
-        ## if we running first time then it will not go in this block
+    def load_or_create(self, texts: Optional[List[str]] = None, metadatas: Optional[List[dict]] = None):
         if self._exists():
             self.vs = FAISS.load_local(
                 str(self.index_dir),
@@ -139,30 +141,24 @@ class FaissManager:
             )
             return self.vs
         
-        
         if not texts:
             raise DocumentPortalException("No existing FAISS index and no data to create one", sys)
         self.vs = FAISS.from_texts(texts=texts, embedding=self.emb, metadatas=metadatas or [])
         self.vs.save_local(str(self.index_dir))
         return self.vs
-        
-        
+
 class ChatIngestor:
-    def __init__( self,
-        temp_base: str = "data",
-        faiss_base: str = "faiss_index",
-        use_session_dirs: bool = True,
-        session_id: Optional[str] = None,
-    ):
+    def __init__(self, temp_base: str = "data", faiss_base: str = "faiss_index", use_session_dirs: bool = True, session_id: Optional[str] = None):
         try:
             self.log = CustomLogger().get_logger(__name__)
             self.model_loader = ModelLoader()
-            
             self.use_session = use_session_dirs
             self.session_id = session_id or generate_session_id()
             
-            self.temp_base = Path(temp_base); self.temp_base.mkdir(parents=True, exist_ok=True)
-            self.faiss_base = Path(faiss_base); self.faiss_base.mkdir(parents=True, exist_ok=True)
+            self.temp_base = Path(temp_base)
+            self.temp_base.mkdir(parents=True, exist_ok=True)
+            self.faiss_base = Path(faiss_base)
+            self.faiss_base.mkdir(parents=True, exist_ok=True)
             
             self.temp_dir = self._resolve_dir(self.temp_base)
             self.faiss_dir = self._resolve_dir(self.faiss_base)
@@ -183,13 +179,13 @@ class ChatIngestor:
             return dir_path
         return base
 
-    def build_retriever(self, uploaded_files, chunk_size=1000, chunk_overlap=200, k=5):  # Assuming this is the method name, corrected from 'built_retriver'
+    def build_retriever(self, uploaded_files, chunk_size=1000, chunk_overlap=200, k=5):
         try:
             saved_paths = save_uploaded_files(uploaded_files, self.temp_dir)
             docs = []
             for path in saved_paths:
                 loaded_docs = load_documents(str(path))
-                splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 split_docs = splitter.split_documents(loaded_docs)
                 docs.extend(split_docs)
             fm = FaissManager(self.faiss_dir)
@@ -209,7 +205,7 @@ class DocHandler:
         self.session_path.mkdir(parents=True, exist_ok=True)
         self.log.info("DocHandler initialized", session_path=str(self.session_path))
 
-    def save_pdf(self, uploaded_file):  # Renamed internally to save_file but kept name for compatibility; added extension check
+    def save_pdf(self, uploaded_file):
         try:
             filename = uploaded_file.name
             extension = os.path.splitext(filename)[1].lower()
@@ -227,7 +223,7 @@ class DocHandler:
             self.log.error("Failed to save file", error=str(e), session_id=self.session_id)
             raise DocumentPortalException(f"Failed to save file: {str(e)}", sys) from e
 
-    def read_pdf(self, pdf_path: str) -> str:  # Renamed internally to read_document but kept name; now uses load_documents
+    def read_pdf(self, pdf_path: str) -> str:
         try:
             docs = load_documents(pdf_path)
             text = "\n\n".join([d.page_content for d in docs])
@@ -238,9 +234,6 @@ class DocHandler:
             raise DocumentPortalException(f"Could not process document: {pdf_path}", sys) from e
 
 class DocumentComparator:
-    """
-    Save, read & combine documents for comparison with session-based versioning.
-    """
     def __init__(self, base_dir: str = "data/document_compare", session_id: Optional[str] = None):
         self.log = CustomLogger().get_logger(__name__)
         self.base_dir = Path(base_dir)
@@ -269,7 +262,7 @@ class DocumentComparator:
             self.log.error("Error saving files", error=str(e), session=self.session_id)
             raise DocumentPortalException("Error saving files", sys) from e
 
-    def read_pdf(self, pdf_path: Path) -> str:  # Kept name but now handles general documents
+    def read_pdf(self, pdf_path: Path) -> str:
         try:
             docs = load_documents(str(pdf_path))
             parts = []

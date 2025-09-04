@@ -6,13 +6,28 @@ from pptx.util import Inches
 from PIL import Image  # For generating a sample image
 from io import BytesIO
 import nltk
+from logger.custom_logger import CustomLogger
 
-# Download NLTK punkt tokenizer to avoid runtime download errors
-try:
-    nltk.download('punkt', quiet=True)
-    print("NLTK punkt tokenizer downloaded successfully")
-except Exception as e:
-    print(f"Failed to download NLTK punkt tokenizer: {e}")
+# Initialize logger
+log = CustomLogger().get_logger(__name__)
+
+# Ensure NLTK punkt tokenizer is downloaded
+def ensure_nltk_punkt():
+    try:
+        # Check if punkt is already available
+        nltk.data.find('tokenizers/punkt')
+        log.info("NLTK punkt tokenizer already present")
+    except LookupError:
+        log.info("Downloading NLTK punkt tokenizer")
+        try:
+            nltk.download('punkt', quiet=True, raise_on_error=True)
+            log.info("NLTK punkt tokenizer downloaded successfully")
+        except Exception as e:
+            log.error(f"Failed to download NLTK punkt tokenizer: {str(e)}")
+            raise RuntimeError(f"NLTK punkt download failed: {str(e)}") from e
+
+# Download NLTK punkt at script start
+ensure_nltk_punkt()
 
 # Create the data/test_files folder if it doesn't exist
 os.makedirs('data/test_files', exist_ok=True)
@@ -130,6 +145,7 @@ slide3.shapes.add_picture(img_buffer, left_img, top_img, width=Inches(4))
 
 prs.save('data/test_files/test.pptx')
 
-# Print generated files for verification
+# Log and print generated files for verification
 generated_files = os.listdir('data/test_files')
+log.info("Test files generated successfully", files=generated_files)
 print("Generated test files:", generated_files)

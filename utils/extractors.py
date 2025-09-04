@@ -22,7 +22,7 @@ def extract_tables(file_path: str, extension: str) -> List[Document]:
     tables: List[Document] = []
     try:
         if extension == '.pdf':
-            table_list = camelot.read_pdf(file_path, flavor='stream', pages='all')
+            table_list = camelot.read_pdf(str(file_path), flavor='stream', pages='all')
             for idx, table in enumerate(table_list):
                 df = table.df
                 content = f"Extracted Table {idx + 1}:\n{df.to_markdown()}"
